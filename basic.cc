@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <iostream>
+#include <map>
+#include <vector>
 
 #include <GLFW/glfw3.h>
 #include <mujoco/mujoco.h>
@@ -122,10 +126,48 @@ int main(int argc, const char** argv) {
   // make data
   d = mj_makeData(m);
 
+  const auto torso_id = (m != nullptr) ? mj_name2id(m, mjOBJ_BODY, "torso") : -1;
+  const size_t base_dofs = (m != nullptr && torso_id != -1) ? *(m->body_dofnum + torso_id) : 0;
+  const size_t base_q = (m != nullptr && *(m->jnt_type) == mjJNT_FREE) ? 7 : base_dofs;
+  const size_t base_v = (m != nullptr && *(m->jnt_type) == mjJNT_FREE) ? 6 : base_dofs;
+
+  std::map<int, size_t> act2jnt;
+  std::map<size_t, int> jnt2act;
+  std::map<size_t, size_t> jnt2qvec;
+  std::map<size_t, size_t> jnt2vvec;
   if (m != nullptr) {
     std::cout << "nq: " << m->nq << ", nv: " << m->nv << ", nu: " << m->nu << ", njnt: " << m->njnt << std::endl;
     if (m->nv != m->nu) {
       std::cout << "joint mismatch!" << std::endl;
+    }
+    std::cout << "Torso id: " << mj_name2id(m, mjOBJ_BODY, "torso") << std::endl;
+    std::cout << "Base q: " << base_q << ", base v: " << base_v << std::endl;
+    for (size_t i = 0; i < m->nbody; ++i) {
+      std::cout << "body " << i << " '" << mj_id2name(m, mjOBJ_BODY, i) << "' - " << *(m->body_dofnum + i)
+                << " dofs, " << *(m->body_jntnum + i) << " joints, parent_id: " << *(m->body_parentid + i) << std::endl;
+    }
+    for (size_t i = 0; i < m->njnt; ++i) {
+      const auto body_id = *(m->jnt_bodyid + i);
+      jnt2qvec[i] = *(m->jnt_qposadr + i);
+      jnt2vvec[i] = *(m->jnt_dofadr + i);
+      std::cout << "joint " << i << " '" << mj_id2name(m, mjOBJ_JOINT, i) << "' - type: " << *(m->jnt_type + i)
+                << ", body id: " << body_id << ", qposadr: " << jnt2qvec[i]
+                << ", qdofadr: " << jnt2vvec[i] << std::endl;
+    }
+    for (size_t i = 0; i < m->nv; ++i) {
+      const auto body_id = *(m->dof_bodyid + i);
+      const auto jnt_id = *(m->dof_jntid + i);
+      std::cout << "dof " << i << "' - body: " << body_id << " - " << mj_id2name(m, mjOBJ_BODY, body_id)
+                << ", jnt id: " << jnt_id << " - " << mj_id2name(m, mjOBJ_JOINT, jnt_id)
+                << ", parent id: " << *(m->dof_parentid) << std::endl;
+    }
+    for (size_t i = 0; i < m->nu; ++i) {
+      std::cout << "act " << i << " '" << mj_id2name(m, mjOBJ_ACTUATOR, i) << "'"
+                << " - trntype: " << *(m->actuator_trntype + i)
+                << ", dyntype: " << *(m->actuator_dyntype + i)
+                << ", trnid: " << *(m->actuator_trnid + (i*2))  << " | " << *(m->actuator_trnid + (i*2) + 1)<< std::endl;
+      act2jnt[i] = *(m->actuator_trnid + (i*2));
+      jnt2act[*(m->actuator_trnid + (i*2))] = i;
     }
   }
   
@@ -155,6 +197,23 @@ int main(int argc, const char** argv) {
   glfwSetMouseButtonCallback(window, mouse_button);
   glfwSetScrollCallback(window, scroll);
 
+  if (d && m) {
+    const auto j = mj_name2id(m, mjOBJ_JOINT, "left_hip_y");
+    *(d->qpos + j) = -0.4;
+  }
+
+  // Create an array of desired joint angles and initilize them to the current joint angles.
+  std::vector<double> q_d(m->nq - base_q, 0);
+  if (d != nullptr && m != nullptr) {
+    for (size_t j = 0; j < q_d.size(); ++j) {
+      q_d[j] = *(d->qpos + j + base_q);
+    }
+  }
+  // Set up a vector of target angles
+  std::vector<double> q_tgt = {0.0, 0.0, 0, 0, 0, -0.707, 1.414, 0, -0.707, 0, 0, -0.707, 1.414, 0, -0.707};
+
+  std::cout << "q_d.size()=" << q_d.size() << ", q_tgt.size()=" << q_tgt.size() << ", nu=" << m->nu << std::endl;
+
   // run main loop, target real-time simulation and 60 fps rendering
   while (!glfwWindowShouldClose(window)) {
     // advance interactive simulation for 1/60 sec
@@ -163,26 +222,48 @@ int main(int argc, const char** argv) {
     //  Otherwise add a cpu timer and exit this loop when it is time to render.
     size_t count{ 0 };
     mjtNum simstart = d->time;
+    auto t_last = d->time;
     while (d->time - simstart < 1.0/60.0) {
       //mj_step(m, d);
       mj_step1(m, d);
 
+      const auto dt = d->time - t_last;
+      t_last = d->time;
+
+      if (count % 100 == 0) {
+        std::cout << "time: " << d->time << ", dt: " << dt << ", timestep: " << m->opt.timestep << std::endl;
+      }
       // Run controller here!
-      if (m->nu == m->nv - 6 && m->nu == m->nq - 7) {
-        for (size_t j = 0; j < m->nu; ++j) {
-          double kp = 0.7;
-          double kd = 0.05;
-          double q_d = 0.2;
-          if (j == 7 || j == 8 || j == 13 || j == 14) {
+      if (m->nu == m->nv - base_v && m->nu == m->nq - base_q) {
+        for (size_t a = 0; a < m->nu; ++a) {
+          const auto j = act2jnt[a];
+          const auto qi = jnt2qvec[j];
+          const auto vi = jnt2vvec[j];
+          double kp = 1.7;
+          double kd = 0.15;
+          /*
+          if (a == 7 || a == 8 || a == 13 || a == 14) {
             kp *= 0.1;
             kd *= 0.1;
-            q_d *= -1;
           }
-          *(d->ctrl + j) = kp * (q_d - *(d->qpos + j + 7)) + kd * (0.0 - *(d->qvel + j + 6));
+          */
+
+          double qd_d = 0;
+          // Set the desired position & velocity based on the target angle:
+          if (dt > 0) {
+            constexpr double max_vel{ 0.1 };  // rad/s
+            qd_d = std::clamp((q_tgt[a] - q_d[a]) / m->opt.timestep, -max_vel, max_vel);
+            q_d[a] += qd_d * m->opt.timestep;
+          }
+
+          *(d->ctrl + a) = kp * (q_d[a] - *(d->qpos + qi)) + kd * (qd_d - *(d->qvel + vi));
           if (count % 100 == 0) {
-            std::cout << "joint: " << mj_id2name(m, mjOBJ_JOINT, *(m->dof_jntid + j + 6))
-                      << " # " << j << " - pos: " << *(d->qpos + j + 7)
-                      << ", vel: " << *(d->qvel + j + 6) << ", ctrl: " << *(d->ctrl + j) << std::endl;
+            std::cout << "joint: " << mj_id2name(m, mjOBJ_JOINT, j)
+                      << " # " << j << " - pos: " << *(d->qpos + qi)
+                      << ", q_d: " << q_d[a] << ", q_tgt: " << q_tgt[a]
+                      << ", vel: " << *(d->qvel + vi)
+                      << ", qd_d: " << qd_d
+                      << ", ctrl: " << *(d->ctrl + a) << std::endl;
           }
         }
       }

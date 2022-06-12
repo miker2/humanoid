@@ -27,7 +27,8 @@
 
 <!-- Modified from the above to reduce the number of degrees of freedom
 -->
-  <option timestep="0.005"/>
+  <compiler angle="degree" inertiafromgeom="true"/>
+  <option timestep="0.002"/>
 
   <asset>
     <texture type="skybox" builtin="gradient" rgb1=".3 .5 .7" rgb2="0 0 0" width="512" height="512"/>
@@ -39,14 +40,14 @@
   </asset>
 
   <default>
-    <motor ctrlrange="-1 1" ctrllimited="true"/>
+    <motor ctrlrange="-5 5" ctrllimited="true"/>
     <default class="body">
-      <geom type="capsule" condim="1" friction=".7" solimp=".9 .99 .003" solref=".015 1" material="body"/>
+      <geom type="capsule" condim="1" friction=".7" solimp=".9 .99 .003" solref=".015 1" material="body" density="1000.0"/>
       <joint type="hinge" damping=".2" stiffness="1" armature=".01" limited="true" solimplimit="0 .99 .01"/>
       <default class="big_joint">
-        <joint damping="5" stiffness="10"/>
+        <joint damping="5" stiffness="1"/>
         <default class="big_stiff_joint">
-          <joint stiffness="20"/>
+          <joint stiffness="1"/>
         </default>
       </default>
     </default>
@@ -89,7 +90,7 @@
             <joint name="right_hip_y" axis="0 1 0" range="-110 20" class="big_stiff_joint"/>
             <geom name="right_thigh" fromto="0 0 0 0 .01 -.34" size=".06"/>
             <body name="right_shin" pos="0 .01 -.403">
-              <joint name="right_knee" pos="0 0 .02" axis="0 -1 0" range="-160 2"/>
+              <joint name="right_knee" pos="0 0 .02" axis="0 1 0" range="2 160"/>
               <geom name="right_shin" fromto="0 0 0 0 0 -.3"  size=".049"/>
               <body name="right_foot" pos="0 0 -.39">
                 <joint name="right_ankle_y" pos="0 0 .08" axis="0 1 0" range="-50 50" stiffness="6"/>
@@ -105,7 +106,7 @@
             <joint name="left_hip_y" axis="0 1 0" range="-110 20" class="big_stiff_joint"/>
             <geom name="left_thigh" fromto="0 0 0 0 -.01 -.34" size=".06"/>
             <body name="left_shin" pos="0 -.01 -.403">
-              <joint name="left_knee" pos="0 0 .02" axis="0 -1 0" range="-160 2"/>
+              <joint name="left_knee" pos="0 0 .02" axis="0 1 0" range="2 160"/>
               <geom name="left_shin" fromto="0 0 0 0 0 -.3"  size=".049"/>
               <body name="left_foot" pos="0 0 -.39">
                 <joint name="left_ankle_y" pos="0 0 .08" axis="0 1 0" range="-50 50" stiffness="6"/>
