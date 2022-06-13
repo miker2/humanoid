@@ -16,12 +16,16 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <map>
 #include <vector>
 
 #include <GLFW/glfw3.h>
 #include <mujoco/mujoco.h>
+
+#include <flexi_cfg/config/reader.h>
+#include <flexi_cfg/logger.h>
 
 // MuJoCo data structures
 mjModel* m = NULL;                  // MuJoCo model
@@ -38,6 +42,11 @@ bool button_right =  false;
 double lastx = 0;
 double lasty = 0;
 
+
+struct JointGains {
+  double kp{ 0 };
+  double kd{ 0 };
+};
 
 // keyboard callback
 void keyboard(GLFWwindow* window, int key, int scancode, int act, int mods) {
@@ -107,8 +116,8 @@ void scroll(GLFWwindow* window, double xoffset, double yoffset) {
 // main function
 int main(int argc, const char** argv) {
   // check command-line arguments
-  if (argc!=2) {
-    std::printf(" USAGE:  basic modelfile\n");
+  if (argc!=3) {
+    std::printf(" USAGE:  basic model_file cfg_file\n");
     return 0;
   }
 
@@ -125,6 +134,11 @@ int main(int argc, const char** argv) {
 
   // make data
   d = mj_makeData(m);
+
+  // Load the config file
+  logger::setLevel(logger::Severity::INFO);
+  ConfigReader cfg;
+  cfg.parse(std::filesystem::path(argv[2]));
 
   const auto torso_id = (m != nullptr) ? mj_name2id(m, mjOBJ_BODY, "torso") : -1;
   const size_t base_dofs = (m != nullptr && torso_id != -1) ? *(m->body_dofnum + torso_id) : 0;
@@ -170,7 +184,7 @@ int main(int argc, const char** argv) {
       jnt2act[*(m->actuator_trnid + (i*2))] = i;
     }
   }
-  
+
   // init GLFW
   if (!glfwInit()) {
     mju_error("Could not initialize GLFW");
@@ -197,9 +211,16 @@ int main(int argc, const char** argv) {
   glfwSetMouseButtonCallback(window, mouse_button);
   glfwSetScrollCallback(window, scroll);
 
+
+  // Set up the initial positions (read from the xml file)
   if (d && m) {
-    const auto j = mj_name2id(m, mjOBJ_JOINT, "left_hip_y");
-    *(d->qpos + j) = -0.4;
+    // Initialize the position to the "q_init" vector.
+    const auto q_init_key_id = mj_name2id(m, mjOBJ_KEY, "q_init");
+
+    std::cout << "Model has " << m->nkey << " keyframes." << std::endl;
+    std::cout << "The q_init keyframe has ID " << q_init_key_id << std::endl;
+    // Set the current position based on the initial position using the keyframe vector.
+    mju_copy(d->qpos, m->key_qpos + (m->nq * q_init_key_id), m->nq);
   }
 
   // Create an array of desired joint angles and initilize them to the current joint angles.
@@ -210,9 +231,19 @@ int main(int argc, const char** argv) {
     }
   }
   // Set up a vector of target angles
-  std::vector<double> q_tgt = {0.0, 0.0, 0, 0, 0, -0.707, 1.414, 0, -0.707, 0, 0, -0.707, 1.414, 0, -0.707};
+  const auto q_tgt = cfg.getValue<std::vector<double>>("q_tgt");
 
   std::cout << "q_d.size()=" << q_d.size() << ", q_tgt.size()=" << q_tgt.size() << ", nu=" << m->nu << std::endl;
+  std::cout << "q_tgt: [";
+  for (const auto q : q_tgt) {
+    std::cout << q << ", ";
+  }
+  std::cout << "]" << std::endl;
+
+  JointGains gains;
+  cfg.getValue("default_gains.kp", gains.kp);
+  cfg.getValue("default_gains.kd", gains.kd);
+  const auto rate_limit = cfg.getValue<double>("rate_limit");
 
   // run main loop, target real-time simulation and 60 fps rendering
   while (!glfwWindowShouldClose(window)) {
@@ -239,24 +270,17 @@ int main(int argc, const char** argv) {
           const auto j = act2jnt[a];
           const auto qi = jnt2qvec[j];
           const auto vi = jnt2vvec[j];
-          double kp = 1.7;
-          double kd = 0.15;
-          /*
-          if (a == 7 || a == 8 || a == 13 || a == 14) {
-            kp *= 0.1;
-            kd *= 0.1;
-          }
-          */
+          double kp = 4.7;
+          double kd = 0.35;
 
           double qd_d = 0;
           // Set the desired position & velocity based on the target angle:
           if (dt > 0) {
-            constexpr double max_vel{ 0.1 };  // rad/s
-            qd_d = std::clamp((q_tgt[a] - q_d[a]) / m->opt.timestep, -max_vel, max_vel);
+            qd_d = std::clamp((q_tgt[a] - q_d[a]) / m->opt.timestep, -rate_limit, rate_limit);
             q_d[a] += qd_d * m->opt.timestep;
           }
 
-          *(d->ctrl + a) = kp * (q_d[a] - *(d->qpos + qi)) + kd * (qd_d - *(d->qvel + vi));
+          *(d->ctrl + a) = gains.kp * (q_d[a] - *(d->qpos + qi)) + gains.kd * (qd_d - *(d->qvel + vi));
           if (count % 100 == 0) {
             std::cout << "joint: " << mj_id2name(m, mjOBJ_JOINT, j)
                       << " # " << j << " - pos: " << *(d->qpos + qi)
@@ -267,7 +291,7 @@ int main(int argc, const char** argv) {
           }
         }
       }
-      
+
       mj_step2(m, d);
 
       ++count;

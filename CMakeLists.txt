@@ -9,13 +9,23 @@ include(${CMAKE_SOURCE_DIR}/cmake/colours.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/add_clang_format.cmake)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules)
 
+include(FetchContent)
 include(FindThreads)
 find_library(MUJOCO_LIBRARY mujoco)
 if (NOT MUJOCO_LIBRARY)
-	message(FATAL_ERROR "${Red}Unable to find MuJoCo framework.${ColourReset}")
+  message(FATAL_ERROR "${Red}Unable to find MuJoCo framework.${ColourReset}")
 else()
-	message(STATUS "${Yellow}Found mujoco framework at ${MUJOCO_LIBRARY}${ColourReset}")
+  message(STATUS "${Yellow}Found mujoco framework at ${MUJOCO_LIBRARY}${ColourReset}")
 endif()
+
+FetchContent_Declare(
+  flexi_cfg
+  GIT_REPOSITORY  https://github.com/miker2/flexi_config_reader.git
+  GIT_TAG         fix-external
+  CMAKE_ARGS -DCFG_ENABLE_TEST=OFF
+  )
+FetchContent_MakeAvailable(flexi_cfg)
+
 
 find_package(mujoco REQUIRED)
 find_package(glfw3 REQUIRED)
@@ -45,9 +55,7 @@ endif()
 # Build simulator
 add_executable(basic basic.cc)
 target_link_libraries(basic
-	#"-framework mujoco"
-	#${MUJOCO_LIBRARY}
-	mujoco::mujoco
-	glfw
-	Threads::Threads)
-#set_target_properties(basic PROPERTIES LINK_FLAGS "-Wl,-F/Library/Frameworks")
+  mujoco::mujoco
+  glfw
+  Threads::Threads
+  flexi_cfg::flexi_cfg)
