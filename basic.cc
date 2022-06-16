@@ -28,8 +28,8 @@
 #include <flexi_cfg/logger.h>
 
 // MuJoCo data structures
-mjModel* m = NULL;                  // MuJoCo model
-mjData* d = NULL;                   // MuJoCo data
+mjModel* m = nullptr;               // MuJoCo model
+mjData* d = nullptr;                // MuJoCo data
 mjvCamera cam;                      // abstract camera
 mjvOption opt;                      // visualization options
 mjvScene scn;                       // abstract scene
@@ -128,12 +128,18 @@ int main(int argc, const char** argv) {
   } else {
     m = mj_loadXML(argv[1], 0, error, 1000);
   }
-  if (!m) {
+  if (m == nullptr) {
     mju_error_s("Load model error: %s", error);
+    return -1;
   }
 
   // make data
   d = mj_makeData(m);
+
+  if (d == nullptr) {
+    mju_error("Data creation error: could not create data");
+    return -1;
+  }
 
   // Load the config file
   logger::setLevel(logger::Severity::INFO);
@@ -201,6 +207,13 @@ int main(int argc, const char** argv) {
   mjv_defaultScene(&scn);
   mjr_defaultContext(&con);
 
+  // Enable contact force visualization
+  opt.flags[mjVIS_CONTACTPOINT] = 1;
+  opt.flags[mjVIS_CONTACTFORCE] = 1;
+  opt.flags[mjVIS_COM] = 1;
+  opt.flags[mjVIS_PERTFORCE] = 1;
+
+
   // create scene and context
   mjv_makeScene(m, &scn, 2000);
   mjr_makeContext(m, &con, mjFONTSCALE_150);
@@ -244,24 +257,24 @@ int main(int argc, const char** argv) {
   cfg.getValue("default_gains.kp", gains.kp);
   cfg.getValue("default_gains.kd", gains.kd);
   const auto rate_limit = cfg.getValue<double>("rate_limit");
+  const auto output_interval = cfg.getValue<int>("output_interval");
 
+  auto t_last = d->time;
+  size_t count{ 0 };
   // run main loop, target real-time simulation and 60 fps rendering
   while (!glfwWindowShouldClose(window)) {
     // advance interactive simulation for 1/60 sec
     //  Assuming MuJoCo can simulate faster than real-time, which it usually can,
     //  this loop will finish on time for the next frame to be rendered at 60 fps.
     //  Otherwise add a cpu timer and exit this loop when it is time to render.
-    size_t count{ 0 };
     mjtNum simstart = d->time;
-    auto t_last = d->time;
     while (d->time - simstart < 1.0/60.0) {
-      //mj_step(m, d);
       mj_step1(m, d);
 
       const auto dt = d->time - t_last;
       t_last = d->time;
 
-      if (count % 100 == 0) {
+      if (count % output_interval == 0) {
         std::cout << "time: " << d->time << ", dt: " << dt << ", timestep: " << m->opt.timestep << std::endl;
       }
       // Run controller here!
@@ -270,8 +283,6 @@ int main(int argc, const char** argv) {
           const auto j = act2jnt[a];
           const auto qi = jnt2qvec[j];
           const auto vi = jnt2vvec[j];
-          double kp = 4.7;
-          double kd = 0.35;
 
           double qd_d = 0;
           // Set the desired position & velocity based on the target angle:
@@ -281,7 +292,7 @@ int main(int argc, const char** argv) {
           }
 
           *(d->ctrl + a) = gains.kp * (q_d[a] - *(d->qpos + qi)) + gains.kd * (qd_d - *(d->qvel + vi));
-          if (count % 100 == 0) {
+          if (count % output_interval == 0) {
             std::cout << "joint: " << mj_id2name(m, mjOBJ_JOINT, j)
                       << " # " << j << " - pos: " << *(d->qpos + qi)
                       << ", q_d: " << q_d[a] << ", q_tgt: " << q_tgt[a]
@@ -289,6 +300,20 @@ int main(int argc, const char** argv) {
                       << ", qd_d: " << qd_d
                       << ", ctrl: " << *(d->ctrl + a) << std::endl;
           }
+        }
+      }
+      if (count % output_interval == 0) {
+        std::cout << "There are " << d->ncon << " active contacts." << std::endl;
+        for (size_t i = 0; i < d->ncon; ++i) {
+          const auto& contact = *(d->contact + i);
+          std::array<mjtNum, 6> contact_force;
+          mj_contactForce(m, d, i, contact_force.data());
+          std::cout << "Contact " << i << " - normal: [" << contact.frame[0] << ", " << contact.frame[1] << ", "
+                    << contact.frame[2] << "]"
+                    << ", pos: [" << contact.pos[0] << ", " << contact.pos[1] << ", " << contact.pos[2] << "]"
+                    << ", force: [" << contact_force[0] << ", " << contact_force[1] << ", " << contact_force[2] << "]"
+                    << ", torque: [" << contact_force[3] << ", " << contact_force[4] << ", " << contact_force[5] << "]"
+                    << std::endl;
         }
       }
 
