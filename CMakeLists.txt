@@ -10,6 +10,7 @@ include(${CMAKE_SOURCE_DIR}/cmake/add_clang_format.cmake)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules)
 
 include(FetchContent)
+set(THREADS_PREFER_PTHREAD_FLAG ON)
 include(FindThreads)
 find_library(MUJOCO_LIBRARY mujoco)
 if (NOT MUJOCO_LIBRARY)
@@ -18,10 +19,18 @@ else()
   message(STATUS "${Yellow}Found mujoco framework at ${MUJOCO_LIBRARY}${ColourReset}")
 endif()
 
+find_package(Eigen3 REQUIRED)
+find_package(Boost COMPONENTS system date_time REQUIRED)
+if(Boost_FOUND)
+    include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
+endif()
+link_directories(/usr/local/lib)
+
+
 FetchContent_Declare(
   flexi_cfg
   GIT_REPOSITORY  https://github.com/miker2/flexi_config_reader.git
-  GIT_TAG         fix-external
+  GIT_TAG         7c832304ba5a4d3ff1e7664d57f906daa2156d8e
   CMAKE_ARGS -DCFG_ENABLE_TEST=OFF
   )
 FetchContent_MakeAvailable(flexi_cfg)
@@ -53,9 +62,13 @@ if(APPLE)
 endif()
 
 # Build simulator
-add_executable(basic basic.cc)
+add_executable(basic basic.cc
+  data_registrar.cpp)
 target_link_libraries(basic
   mujoco::mujoco
   glfw
   Threads::Threads
-  flexi_cfg::flexi_cfg)
+  flexi_cfg::flexi_cfg
+  Eigen3::Eigen
+  ${Boost_LIBRARIES}
+)

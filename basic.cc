@@ -19,13 +19,19 @@
 #include <filesystem>
 #include <iostream>
 #include <map>
+#include <span>
 #include <vector>
 
 #include <GLFW/glfw3.h>
 #include <mujoco/mujoco.h>
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+
 #include <flexi_cfg/config/reader.h>
 #include <flexi_cfg/logger.h>
+
+#include "data_registrar.h"
 
 // MuJoCo data structures
 mjModel* m = nullptr;               // MuJoCo model
@@ -140,6 +146,7 @@ int main(int argc, const char** argv) {
     mju_error("Data creation error: could not create data");
     return -1;
   }
+  mj_forward(m, d);
 
   // Load the config file
   logger::setLevel(logger::Severity::INFO);
@@ -247,17 +254,19 @@ int main(int argc, const char** argv) {
   const auto q_tgt = cfg.getValue<std::vector<double>>("q_tgt");
 
   std::cout << "q_d.size()=" << q_d.size() << ", q_tgt.size()=" << q_tgt.size() << ", nu=" << m->nu << std::endl;
-  std::cout << "q_tgt: [";
-  for (const auto q : q_tgt) {
-    std::cout << q << ", ";
-  }
-  std::cout << "]" << std::endl;
+  std::cout << fmt::format("q_tgt : {}", q_tgt) << std::endl;
 
   JointGains gains;
   cfg.getValue("default_gains.kp", gains.kp);
   cfg.getValue("default_gains.kd", gains.kd);
-  const auto rate_limit = cfg.getValue<double>("rate_limit");
-  const auto output_interval = cfg.getValue<int>("output_interval");
+  auto rate_limit = cfg.getValue<double>("rate_limit");
+  auto output_interval = cfg.getValue<int>("output_interval");
+
+  auto& dr = DataRegistrar::getInstance();
+  dr.registerVar("default_gains.kp", &gains.kp);
+  dr.registerVar("default_gains.kd", &gains.kd);
+  dr.registerVar("rate_limit", &rate_limit);
+  dr.registerVar("output_interval", &output_interval);
 
   auto t_last = d->time;
   size_t count{ 0 };
@@ -308,11 +317,9 @@ int main(int argc, const char** argv) {
           const auto& contact = *(d->contact + i);
           std::array<mjtNum, 6> contact_force;
           mj_contactForce(m, d, i, contact_force.data());
-          std::cout << "Contact " << i << " - normal: [" << contact.frame[0] << ", " << contact.frame[1] << ", "
-                    << contact.frame[2] << "]"
-                    << ", pos: [" << contact.pos[0] << ", " << contact.pos[1] << ", " << contact.pos[2] << "]"
-                    << ", force: [" << contact_force[0] << ", " << contact_force[1] << ", " << contact_force[2] << "]"
-                    << ", torque: [" << contact_force[3] << ", " << contact_force[4] << ", " << contact_force[5] << "]"
+          std::cout << fmt::format("Contact {} - normal: {}, pos: {}, force: {}",
+                                   i, std::span<const mjtNum>(std::begin(contact.frame), 3), contact.pos,
+                                   std::span<mjtNum>(std::begin(contact_force), 3))
                     << std::endl;
         }
       }
