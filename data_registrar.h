@@ -1,8 +1,13 @@
 #pragma once
 
+#include <flexi_cfg/utils.h>
+
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 #include <cassert>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <typeindex>
@@ -31,9 +36,9 @@ constexpr size_t MAX_NAME_LEN{128};
 using offset_t = uint32_t;
 struct Column {
   char name[MAX_NAME_LEN];
+  offset_t offset{0};
   std::underlying_type_t<Type> type{static_cast<std::underlying_type_t<Type>>(Type::kUNDEFINED)};
   uint8_t size{0};
-  offset_t offset{0};
 };
 }  // namespace reg_info
 
@@ -64,12 +69,28 @@ struct VarInfoImpl : VarInfo {
       : VarInfo(name, ptr, type_map.at(std::type_index(typeid(T))), sizeof(T), offset) {}
 };
 
+namespace log_helpers {
+const std::array<std::string, 3> cartesian = {"x", "y", "z"};
+const std::array<std::string, 4> quaternion = {"x", "y", "z", "w"};
+}  // namespace log_helpers
+
 class DataRegistrar {
  public:
   static auto getInstance() -> DataRegistrar&;
 
   template <typename T>
   void registerVar(const std::string& name, T* var);
+
+  template <typename T, size_t N>
+  void registerVar(const std::string& name, std::array<T, N>* var,
+                   std::optional<std::array<std::string, N>> suffix);
+
+  template <typename T, int N>
+  void registerVar(const std::string& name, Eigen::Vector<T, N>* var,
+                   std::optional<std::array<std::string, N>> suffix);
+
+  template <typename T>
+  void registerVar(const std::string& name, Eigen::Quaternion<T>* var);
 
   void init();
 
@@ -103,4 +124,31 @@ void DataRegistrar::registerVar(const std::string& name, T* var) {
   registered_addrs_.insert(var);
   vars_.push_back(std::move(regvar));
   offset_ += vars_.back()->info.size;
+}
+
+template <typename T, size_t N>
+void DataRegistrar::registerVar(const std::string& name, std::array<T, N>* var,
+                                std::optional<std::array<std::string, N>> suffix) {
+  for (size_t i = 0; i < N; ++i) {
+    registerVar(utils::makeName(name, suffix.has_value() ? suffix.value()[i] : std::to_string(i)),
+                var->data() + i);
+  }
+}
+
+template <typename T, int N>
+void DataRegistrar::registerVar(const std::string& name, Eigen::Vector<T, N>* var,
+                                std::optional<std::array<std::string, N>> suffix) {
+  for (size_t i = 0; i < N; ++i) {
+    registerVar(utils::makeName(name, suffix.has_value() ? suffix.value()[i] : std::to_string(i)),
+                var->data() + i);
+  }
+  // const auto foo = std::make_integer_sequence<int, N>;
+}
+
+template <typename T>
+void DataRegistrar::registerVar(const std::string& name, Eigen::Quaternion<T>* var) {
+  registerVar(utils::makeName(name, "x"), &(var->x()));
+  registerVar(utils::makeName(name, "y"), &(var->y()));
+  registerVar(utils::makeName(name, "z"), &(var->z()));
+  registerVar(utils::makeName(name, "w"), &(var->w()));
 }
