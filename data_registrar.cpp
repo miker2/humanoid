@@ -19,9 +19,9 @@ void DataRegistrar::tick() {}
 void DataRegistrar::dumpColumns() {
   std::cout << "===== Registered vars =====" << std::endl;
   for (const auto& var : vars_) {
-    std::cout << var->name << " - size: " << static_cast<uint16_t>(var->info.size) << ", offset: " << var->info.offset
-              << ", type: " << static_cast<int>(var->info.type) << ", addr: " << var->addr
-              << std::endl;
+    std::cout << var->name << " - size: " << static_cast<uint16_t>(var->info.size)
+              << ", offset: " << var->info.offset << ", type: " << static_cast<int>(var->info.type)
+              << ", addr: " << var->addr << std::endl;
   }
   std::cout << "===========================" << std::endl;
 }

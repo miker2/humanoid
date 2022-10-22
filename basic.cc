@@ -12,6 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <GLFW/glfw3.h>
+#include <flexi_cfg/config/reader.h>
+#include <flexi_cfg/logger.h>
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+#include <mujoco/mujoco.h>
+
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -22,59 +29,47 @@
 #include <span>
 #include <vector>
 
-#include <GLFW/glfw3.h>
-#include <mujoco/mujoco.h>
-
-#include <fmt/format.h>
-#include <fmt/ranges.h>
-
-#include <flexi_cfg/config/reader.h>
-#include <flexi_cfg/logger.h>
-
 #include "data_registrar.h"
 
 // MuJoCo data structures
-mjModel* m = nullptr;               // MuJoCo model
-mjData* d = nullptr;                // MuJoCo data
-mjvCamera cam;                      // abstract camera
-mjvOption opt;                      // visualization options
-mjvScene scn;                       // abstract scene
-mjrContext con;                     // custom GPU context
+mjModel* m = nullptr;  // MuJoCo model
+mjData* d = nullptr;   // MuJoCo data
+mjvCamera cam;         // abstract camera
+mjvOption opt;         // visualization options
+mjvScene scn;          // abstract scene
+mjrContext con;        // custom GPU context
 
 // mouse interaction
 bool button_left = false;
 bool button_middle = false;
-bool button_right =  false;
+bool button_right = false;
 double lastx = 0;
 double lasty = 0;
 
-
 struct JointGains {
-  double kp{ 0 };
-  double kd{ 0 };
+  double kp{0};
+  double kd{0};
 };
 
 // keyboard callback
 void keyboard(GLFWwindow* window, int key, int scancode, int act, int mods) {
   // backspace: reset simulation
-  if (act==GLFW_PRESS && key==GLFW_KEY_BACKSPACE) {
+  if (act == GLFW_PRESS && key == GLFW_KEY_BACKSPACE) {
     mj_resetData(m, d);
     mj_forward(m, d);
   }
 }
 
-
 // mouse button callback
 void mouse_button(GLFWwindow* window, int button, int act, int mods) {
   // update button state
-  button_left = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT)==GLFW_PRESS);
-  button_middle = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE)==GLFW_PRESS);
-  button_right = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT)==GLFW_PRESS);
+  button_left = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
+  button_middle = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
+  button_right = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
 
   // update mouse position
   glfwGetCursorPos(window, &lastx, &lasty);
 }
-
 
 // mouse move callback
 void mouse_move(GLFWwindow* window, double xpos, double ypos) {
@@ -94,8 +89,8 @@ void mouse_move(GLFWwindow* window, double xpos, double ypos) {
   glfwGetWindowSize(window, &width, &height);
 
   // get shift key state
-  bool mod_shift = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT)==GLFW_PRESS ||
-                    glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT)==GLFW_PRESS);
+  bool mod_shift = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+                    glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
 
   // determine action based on mouse button
   mjtMouse action;
@@ -108,28 +103,26 @@ void mouse_move(GLFWwindow* window, double xpos, double ypos) {
   }
 
   // move camera
-  mjv_moveCamera(m, action, dx/height, dy/height, &scn, &cam);
+  mjv_moveCamera(m, action, dx / height, dy / height, &scn, &cam);
 }
-
 
 // scroll callback
 void scroll(GLFWwindow* window, double xoffset, double yoffset) {
   // emulate vertical mouse motion = 5% of window height
-  mjv_moveCamera(m, mjMOUSE_ZOOM, 0, -0.05*yoffset, &scn, &cam);
+  mjv_moveCamera(m, mjMOUSE_ZOOM, 0, -0.05 * yoffset, &scn, &cam);
 }
-
 
 // main function
 int main(int argc, const char** argv) {
   // check command-line arguments
-  if (argc!=3) {
+  if (argc != 3) {
     std::printf(" USAGE:  basic model_file cfg_file\n");
     return 0;
   }
 
   // load and compile model
   char error[1000] = "Could not load binary model";
-  if (std::strlen(argv[1])>4 && !std::strcmp(argv[1]+std::strlen(argv[1])-4, ".mjb")) {
+  if (std::strlen(argv[1]) > 4 && !std::strcmp(argv[1] + std::strlen(argv[1]) - 4, ".mjb")) {
     m = mj_loadModel(argv[1], 0);
   } else {
     m = mj_loadXML(argv[1], 0, error, 1000);
@@ -163,38 +156,42 @@ int main(int argc, const char** argv) {
   std::map<size_t, size_t> jnt2qvec;
   std::map<size_t, size_t> jnt2vvec;
   if (m != nullptr) {
-    std::cout << "nq: " << m->nq << ", nv: " << m->nv << ", nu: " << m->nu << ", njnt: " << m->njnt << std::endl;
+    std::cout << "nq: " << m->nq << ", nv: " << m->nv << ", nu: " << m->nu << ", njnt: " << m->njnt
+              << std::endl;
     if (m->nv != m->nu) {
       std::cout << "joint mismatch!" << std::endl;
     }
     std::cout << "Torso id: " << mj_name2id(m, mjOBJ_BODY, "torso") << std::endl;
     std::cout << "Base q: " << base_q << ", base v: " << base_v << std::endl;
     for (size_t i = 0; i < m->nbody; ++i) {
-      std::cout << "body " << i << " '" << mj_id2name(m, mjOBJ_BODY, i) << "' - " << *(m->body_dofnum + i)
-                << " dofs, " << *(m->body_jntnum + i) << " joints, parent_id: " << *(m->body_parentid + i) << std::endl;
+      std::cout << "body " << i << " '" << mj_id2name(m, mjOBJ_BODY, i) << "' - "
+                << *(m->body_dofnum + i) << " dofs, " << *(m->body_jntnum + i)
+                << " joints, parent_id: " << *(m->body_parentid + i) << std::endl;
     }
     for (size_t i = 0; i < m->njnt; ++i) {
       const auto body_id = *(m->jnt_bodyid + i);
       jnt2qvec[i] = *(m->jnt_qposadr + i);
       jnt2vvec[i] = *(m->jnt_dofadr + i);
-      std::cout << "joint " << i << " '" << mj_id2name(m, mjOBJ_JOINT, i) << "' - type: " << *(m->jnt_type + i)
-                << ", body id: " << body_id << ", qposadr: " << jnt2qvec[i]
-                << ", qdofadr: " << jnt2vvec[i] << std::endl;
+      std::cout << "joint " << i << " '" << mj_id2name(m, mjOBJ_JOINT, i)
+                << "' - type: " << *(m->jnt_type + i) << ", body id: " << body_id
+                << ", qposadr: " << jnt2qvec[i] << ", qdofadr: " << jnt2vvec[i] << std::endl;
     }
     for (size_t i = 0; i < m->nv; ++i) {
       const auto body_id = *(m->dof_bodyid + i);
       const auto jnt_id = *(m->dof_jntid + i);
-      std::cout << "dof " << i << "' - body: " << body_id << " - " << mj_id2name(m, mjOBJ_BODY, body_id)
-                << ", jnt id: " << jnt_id << " - " << mj_id2name(m, mjOBJ_JOINT, jnt_id)
-                << ", parent id: " << *(m->dof_parentid) << std::endl;
+      std::cout << "dof " << i << "' - body: " << body_id << " - "
+                << mj_id2name(m, mjOBJ_BODY, body_id) << ", jnt id: " << jnt_id << " - "
+                << mj_id2name(m, mjOBJ_JOINT, jnt_id) << ", parent id: " << *(m->dof_parentid)
+                << std::endl;
     }
     for (size_t i = 0; i < m->nu; ++i) {
       std::cout << "act " << i << " '" << mj_id2name(m, mjOBJ_ACTUATOR, i) << "'"
                 << " - trntype: " << *(m->actuator_trntype + i)
                 << ", dyntype: " << *(m->actuator_dyntype + i)
-                << ", trnid: " << *(m->actuator_trnid + (i*2))  << " | " << *(m->actuator_trnid + (i*2) + 1)<< std::endl;
-      act2jnt[i] = *(m->actuator_trnid + (i*2));
-      jnt2act[*(m->actuator_trnid + (i*2))] = i;
+                << ", trnid: " << *(m->actuator_trnid + (i * 2)) << " | "
+                << *(m->actuator_trnid + (i * 2) + 1) << std::endl;
+      act2jnt[i] = *(m->actuator_trnid + (i * 2));
+      jnt2act[*(m->actuator_trnid + (i * 2))] = i;
     }
   }
 
@@ -220,7 +217,6 @@ int main(int argc, const char** argv) {
   opt.flags[mjVIS_COM] = 1;
   opt.flags[mjVIS_PERTFORCE] = 1;
 
-
   // create scene and context
   mjv_makeScene(m, &scn, 2000);
   mjr_makeContext(m, &con, mjFONTSCALE_150);
@@ -230,7 +226,6 @@ int main(int argc, const char** argv) {
   glfwSetCursorPosCallback(window, mouse_move);
   glfwSetMouseButtonCallback(window, mouse_button);
   glfwSetScrollCallback(window, scroll);
-
 
   // Set up the initial positions (read from the xml file)
   if (d && m) {
@@ -253,7 +248,8 @@ int main(int argc, const char** argv) {
   // Set up a vector of target angles
   const auto q_tgt = cfg.getValue<std::vector<double>>("q_tgt");
 
-  std::cout << "q_d.size()=" << q_d.size() << ", q_tgt.size()=" << q_tgt.size() << ", nu=" << m->nu << std::endl;
+  std::cout << "q_d.size()=" << q_d.size() << ", q_tgt.size()=" << q_tgt.size() << ", nu=" << m->nu
+            << std::endl;
   std::cout << fmt::format("q_tgt : {}", q_tgt) << std::endl;
 
   JointGains gains;
@@ -269,7 +265,7 @@ int main(int argc, const char** argv) {
   dr.registerVar("output_interval", &output_interval);
 
   auto t_last = d->time;
-  size_t count{ 0 };
+  size_t count{0};
   // run main loop, target real-time simulation and 60 fps rendering
   while (!glfwWindowShouldClose(window)) {
     // advance interactive simulation for 1/60 sec
@@ -277,14 +273,15 @@ int main(int argc, const char** argv) {
     //  this loop will finish on time for the next frame to be rendered at 60 fps.
     //  Otherwise add a cpu timer and exit this loop when it is time to render.
     mjtNum simstart = d->time;
-    while (d->time - simstart < 1.0/60.0) {
+    while (d->time - simstart < 1.0 / 60.0) {
       mj_step1(m, d);
 
       const auto dt = d->time - t_last;
       t_last = d->time;
 
       if (count % output_interval == 0) {
-        std::cout << "time: " << d->time << ", dt: " << dt << ", timestep: " << m->opt.timestep << std::endl;
+        std::cout << "time: " << d->time << ", dt: " << dt << ", timestep: " << m->opt.timestep
+                  << std::endl;
       }
       // Run controller here!
       if (m->nu == m->nv - base_v && m->nu == m->nq - base_q) {
@@ -300,14 +297,13 @@ int main(int argc, const char** argv) {
             q_d[a] += qd_d * m->opt.timestep;
           }
 
-          *(d->ctrl + a) = gains.kp * (q_d[a] - *(d->qpos + qi)) + gains.kd * (qd_d - *(d->qvel + vi));
+          *(d->ctrl + a) =
+              gains.kp * (q_d[a] - *(d->qpos + qi)) + gains.kd * (qd_d - *(d->qvel + vi));
           if (count % output_interval == 0) {
-            std::cout << "joint: " << mj_id2name(m, mjOBJ_JOINT, j)
-                      << " # " << j << " - pos: " << *(d->qpos + qi)
-                      << ", q_d: " << q_d[a] << ", q_tgt: " << q_tgt[a]
-                      << ", vel: " << *(d->qvel + vi)
-                      << ", qd_d: " << qd_d
-                      << ", ctrl: " << *(d->ctrl + a) << std::endl;
+            std::cout << "joint: " << mj_id2name(m, mjOBJ_JOINT, j) << " # " << j
+                      << " - pos: " << *(d->qpos + qi) << ", q_d: " << q_d[a]
+                      << ", q_tgt: " << q_tgt[a] << ", vel: " << *(d->qvel + vi)
+                      << ", qd_d: " << qd_d << ", ctrl: " << *(d->ctrl + a) << std::endl;
           }
         }
       }
@@ -317,9 +313,9 @@ int main(int argc, const char** argv) {
           const auto& contact = *(d->contact + i);
           std::array<mjtNum, 6> contact_force;
           mj_contactForce(m, d, i, contact_force.data());
-          std::cout << fmt::format("Contact {} - normal: {}, pos: {}, force: {}",
-                                   i, std::span<const mjtNum>(std::begin(contact.frame), 3), contact.pos,
-                                   std::span<mjtNum>(std::begin(contact_force), 3))
+          std::cout << fmt::format("Contact {} - normal: {}, pos: {}, force: {}", i,
+                                   std::span<const mjtNum>(std::begin(contact.frame), 3),
+                                   contact.pos, std::span<mjtNum>(std::begin(contact_force), 3))
                     << std::endl;
         }
       }
@@ -344,7 +340,7 @@ int main(int argc, const char** argv) {
     glfwPollEvents();
   }
 
-  //free visualization storage
+  // free visualization storage
   mjv_freeScene(&scn);
   mjr_freeContext(&con);
 
