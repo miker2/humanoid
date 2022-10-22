@@ -30,7 +30,7 @@ link_directories(/usr/local/lib)
 FetchContent_Declare(
   flexi_cfg
   GIT_REPOSITORY  https://github.com/miker2/flexi_config_reader.git
-  GIT_TAG         7c832304ba5a4d3ff1e7664d57f906daa2156d8e
+  GIT_TAG         785334ac8d385940e46270fe1ef1dbf7517d4328
   CMAKE_ARGS -DCFG_ENABLE_TEST=OFF
   )
 FetchContent_MakeAvailable(flexi_cfg)

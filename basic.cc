@@ -221,6 +221,8 @@ int main(int argc, const char** argv) {
   mjv_makeScene(m, &scn, 2000);
   mjr_makeContext(m, &con, mjFONTSCALE_150);
 
+  glfwSetWindowTitle(window, fmt::format("Simulate : {}", m->names).c_str());
+
   // install GLFW mouse and keyboard callbacks
   glfwSetKeyCallback(window, keyboard);
   glfwSetCursorPosCallback(window, mouse_move);
