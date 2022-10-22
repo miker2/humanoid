@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "data_registrar.h"
+#include "virtual_model_control.h"
 
 // MuJoCo data structures
 mjModel* m = nullptr;  // MuJoCo model
@@ -265,6 +266,11 @@ int main(int argc, const char** argv) {
   dr.registerVar("default_gains.kd", &gains.kd);
   dr.registerVar("rate_limit", &rate_limit);
   dr.registerVar("output_interval", &output_interval);
+
+  control::VMC::Gains vmc_gains;
+  vmc_gains.registerVars("vmc_gains", dr);
+  control::VMC::Input vmc_input;
+  vmc_input.registerVars("vmc_input", dr);
 
   auto t_last = d->time;
   size_t count{0};
